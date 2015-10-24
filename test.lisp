@@ -15,6 +15,10 @@
 
 (in-package :math-test)
 
+(defmacro push-many (place &body items)
+  `(progn ,@(loop for item in items
+                  collect `(push ,item ,place))))
+
 (defmodel service-rating ()
           ((rating :cell t :accessor rating :initarg :rating :initform (c-in :normal))
            (rate   :cell t :accessor rate   :initform (c? (case (rating self)
@@ -27,6 +31,9 @@
            (rate :cell t :accessor rate :initarg :rate :initform (c-in 0.18))
            (tip  :cell t :accessor tip  :initform (c? (* (cost self)
                                                          (rate self))))))
+(defmodel fed-tip-calc (tip-calc)
+          ((rate-feeder :cell t :accessor rate-feeder :initarg :feeder)
+           (rate :cell t :accessor rate :initarg :rate :initform (c? (rate (rate-feeder self))))))
 
 (defmodel item ()
           ((kind :cell t :accessor kind :initarg :kind :initform (c-in :food))
@@ -47,38 +54,38 @@
                                                               (subtotal self))
                                                            (tip self))))))
 
+
+(defobserver rate ((self tip-calc))
+             (when old-value-boundp
+               (format t "The rate is: ~a It changed by: ~a~%" new-value (- new-value
+                                                                             old-value))))
+
 (defobserver tip ((self tip-calc))
              (when old-value-boundp
-               (format t "The tip is: ~a~%It changed by: ~a~%" new-value (- new-value
+               (format t "The tip is: ~a It changed by: ~a~%" new-value (- new-value
                                                                             old-value))))
 
 
+(let* ((s-r (make-instance 'service-rating))
+       (bill (make-instance 'bill))
+       (tc (make-instance 'fed-tip-calc :cost (c? (cost bill)) :feeder s-r))
+       (meal-calc (make-instance 'meal-expense-calculator
+                                 :subtotal (c? (cost bill))
+                                 :tip      (c? (tip tc)))))
 
-(defmacro push-many (place &body items)
-  `(progn ,@(loop for item in items
-                  collect `(push ,item ,place))))
+  (push-many (items bill)
+             (make-instance 'item :kind :meatloaf :cost 12.99)
+             (make-instance 'item :kind :salmon :cost 14.99)
+             (make-instance 'item :kind :frenchfries :cost 3.99)
+             (make-instance 'item :kind :tomatosoup :cost 3.99)
+             (make-instance 'item :kind :burgundy :cost 8.99)
+             (make-instance 'item :kind :icedtea :cost 3.99))
+  (setf (rating s-r) :excellent)
 
-(defparameter s-r (make-instance 'service-rating))
-(defparameter bill (make-instance 'bill))
-(defparameter tc (make-instance 'tip-calc :cost (c? (cost bill)) :rate (c? (rate s-r))))
-(defparameter meal-calc (make-instance 'meal-expense-calculator
-                                       :subtotal (c? (cost bill))
-                                       :tip      (c? (tip tc))))
-
-(push-many (items bill)
-  (make-instance 'item :kind :meatloaf :cost 12.99)
-  (make-instance 'item :kind :salmon :cost 14.99)
-  (make-instance 'item :kind :frenchfries :cost 3.99)
-  (make-instance 'item :kind :tomatosoup :cost 3.99)
-  (make-instance 'item :kind :burgundy :cost 8.99)
-  (make-instance 'item :kind :icedtea :cost 3.99))
-(setf (rating s-r) :excellent)
-
-(format t "~{~a~20t~a~%~}------------------------------
-Subtotal:~20t~a~%Tax:~20t~a~%Tip:~20t~a~%Total:~20t~a~%"
-        (loop for item in (items bill)
-              append (list (kind item) (cost item)))
-        (subtotal meal-calc)
-        (* 0.08 (subtotal meal-calc))
-        (tip tc)
-        (total meal-calc))
+  (format t "~{~a~20t~a~%~}------------------------------~%Subtotal:~20t~a~%Tax:~20t~a~%Tip:~20t~a~%Total:~20t~a~%"
+          (loop for item in (items bill)
+                append (list (kind item) (cost item)))
+          (subtotal meal-calc)
+          (* 0.08 (subtotal meal-calc))
+          (tip tc)
+          (total meal-calc)))
