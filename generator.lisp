@@ -31,7 +31,7 @@
 (defparameter outp nil)
 (with-generator (to-ten) x
   (with-generator (to-ten) y
-    2))
+    (push (* x y) outp)))
 
 (defpackage generator-lambda
   (:use :cl))
