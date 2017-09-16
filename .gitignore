@@ -1,0 +1,5 @@
+.[#]*
+[#]*
+gen-patmatch.fasl
+timer.fasl
+*.fasl
