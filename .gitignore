@@ -3,3 +3,6 @@
 gen-patmatch.fasl
 timer.fasl
 *.fasl
+*~
+.*fasl
+*.*fasl
