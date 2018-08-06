@@ -6,3 +6,4 @@ timer.fasl
 *~
 .*fasl
 *.*fasl
+/jsonifier
