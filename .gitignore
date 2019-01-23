@@ -7,3 +7,5 @@ timer.fasl
 .*fasl
 *.*fasl
 /jsonifier
+*.dx*fsl
+*.fas
