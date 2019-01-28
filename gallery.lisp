@@ -1,3 +1,14 @@
+#.(progn
+    (asdf:defsystem :fwoar.gallery
+      :depends-on (:lquery
+                   :araneus
+                   :drakma
+                   :clack
+                   :yason
+                   :ningle
+                   :lass))
+    nil)
+
 (defpackage :fwoar.gallery
   (:use :cl :araneus :alexandria :serapeum)
   (:export ))
@@ -74,6 +85,7 @@
 (defun get-site (uri)
   (hostname-case uri
     ("gfycat.com" :gfycat)
+    ("imgur.com" :imgur)
     ("i.redd.it" :ireddit)
     ("v.redd.it" :vreddit)))
 
@@ -87,6 +99,13 @@
              (puri:render-uri
               (fw.lu:prog1-bind (uri (puri:copy-uri uri))
                 (setf (puri:uri-host uri) "gfycat.com"))
+              nil))))
+  (:method ((site (eql :imgur)) uri)
+    (make-image
+     (format nil "~a.jpg"
+             (puri:render-uri
+              (fw.lu:prog1-bind (uri (puri:copy-uri uri))
+                (setf (puri:uri-host uri) "i.imgur.com"))
               nil))))
   (:method ((site (eql :vreddit)) uri)
     (make-video (puri:render-uri uri nil))))
@@ -112,11 +131,19 @@
                     body)
             )))
 
-(defmethod view :around ((name (eql 'root)) (model page))
-  (spinneret:with-html-string
-    (:html
-     (:head
-      (css
+(spinneret:deftag js (body attrs)
+  `(:script :type "text/javascript"
+            ,@attrs
+            (:raw
+             ,(format nil "~%")
+             (ps:ps
+               ,@body))))
+
+(defun gallery-css ()
+  (spinneret:with-html
+    (css
+      (:let ((bottom-gap 2em)
+             (gallery-height (calc (- 100vh 2em))))
         (*
          :box-sizing border-box)
         (html
@@ -127,22 +154,21 @@
 
         (.gallery
          :position relative
-         :display flex
+         :column-count 4
          :width 100vw
-         :height (calc (- 100vh 2em))
+         :height #(gallery-height)
          :overflow-y scroll
          :background "#888"
 
          :flex-wrap wrap)
         ((.gallery > div)
          :text-align center
-         :width 25%
          :max-height 25vh
          :overflow hidden)
         ((.gallery img)
          :width 98%
          :height 98%
-         :object-fit contain)
+         :object-fit cover)
         ((.gallery video)
          :width 98%
          :height 98%
@@ -151,7 +177,7 @@
          :position fixed
          :top 0
          :left 0
-         :max-height (calc (- 100vh 2em))
+         :max-height #(gallery-height)
          :height 100%
          :width 100%
          :background "#eee")
@@ -162,11 +188,35 @@
          :height 100%)
         ((.gallery > div.expanded > img)
          :display inline-block
+         :object-fit contain
          :vertical-align middle
          :height (calc (- 100vh 2em)))
         ((.gallery > div.expanded > video)
          :display inline-block
-         :vertical-align middle)))
+         :vertical-align middle)))))
+
+(defun gallery-js ()
+  (js
+   (ps:chain #() for-each
+             (call (ps:chain document
+                             (query-selector-all ".gallery > div"))
+                   (lambda (it)
+                     (ps:chain it (add-event-listener
+                                   "click"
+                                   (lambda ()
+                                     (ps:chain #() for-each
+                                               (call (ps:chain document (query-selector-all ".expanded"))
+                                                     (lambda (other)
+                                                       (unless (eql other it)
+                                                         (ps:chain other class-list (remove "expanded"))))))
+                                     (ps:chain it class-list (toggle "expanded"))))))))) )
+
+
+(defmethod view :around ((name (eql 'root)) (model page))
+  (spinneret:with-html-string
+    (:html
+     (:head
+      (gallery-css))
      (:body
       (let ((*gallery* (make-gallery (subseq (images (gallery model))
                                              (* 52 (1- (page model)))
@@ -178,22 +228,7 @@
         (:a :href (format nil "/?page=~d" (1+ (page model)))
             :style "width: 100%; text-align: center; display: inline-block;"
             "next"))
-      (:script
-       (:raw
-        (ps:ps
-          (ps:chain #() for-each
-                    (call (ps:chain document
-                                    (query-selector-all ".gallery > div"))
-                          (lambda (it)
-                            (ps:chain it (add-event-listener
-                                          "click"
-                                          (lambda ()
-                                            (ps:chain #() for-each
-                                                      (call (ps:chain document (query-selector-all ".expanded"))
-                                                            (lambda (other)
-                                                              (unless (eql other it)
-                                                                (ps:chain other class-list (remove "expanded"))))))
-                                            (ps:chain it class-list (toggle "expanded")))))))))))))))
+      (gallery-js)))))
 
 (define-view root ((model page))
   (spinneret:with-html
@@ -215,6 +250,12 @@
   (defroutes app
     (("/") (as-route 'root :gallery gallery))))
 
+(defun get-reddit-items (r)
+  (process-uri-list
+   (mapcar (lambda (i)
+             (fw.lu:pick '("data" "url") i))
+           (fw.lu:pick '("data" "children") r))))
+
 (defun main (url)
   (let* ((app (make-instance 'ningle:<app>))
          (gallery (page->gallery (plump:parse
@@ -223,12 +264,6 @@
                                  url)))
     (initialize-app app gallery)
     (clack:clackup app)))
-
-(defun get-reddit-items (r)
-  (process-uri-list
-   (mapcar (lambda (i)
-             (fw.lu:pick '("data" "url") i))
-           (fw.lu:pick '("data" "children") r))))
 
 (defun reddit-main (subreddits)
   (let* ((app (make-instance 'ningle:<app>))
@@ -245,3 +280,8 @@
     (setf *gallery* gallery)
     (initialize-app app gallery)
     (clack:clackup app)))
+
+(defun cl-user::fwoar.gallery.main (version init)
+  (ecase version
+    (:reddit (reddit-main init))
+    (:dir (main init))))
