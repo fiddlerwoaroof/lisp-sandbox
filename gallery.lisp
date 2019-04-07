@@ -98,7 +98,7 @@
      (format nil "~a.mp4"
              (puri:render-uri
               (fw.lu:prog1-bind (uri (puri:copy-uri uri))
-                (setf (puri:uri-host uri) "gfycat.com"))
+                (setf (puri:uri-host uri) "giant.gfycat.com"))
               nil))))
   (:method ((site (eql :imgur)) uri)
     (make-image
@@ -244,7 +244,7 @@
 (define-view root ((model video))
   (spinneret:with-html
     (:div.image
-     (:video :autoplay "autoplay" (:source :src (url model) :type "video/mp4")))))
+     (:video :autoplay "autoplay" :loop "loop" (:source :src (url model) :type "video/mp4")))))
 
 (defun initialize-app (app gallery)
   (defroutes app

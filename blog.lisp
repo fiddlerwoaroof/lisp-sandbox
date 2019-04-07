@@ -3,29 +3,6 @@
   (:export ))
 (in-package :fwoar.blog)
 
-(defmacro new (class &rest initializer-syms)
-  (multiple-value-bind (required optional rest) (parse-ordinary-lambda-list initializer-syms)
-    (when optional
-      (error "new doesn't handle optional arguments"))
-    (if rest
-        `(make-instance ,class
-                        ,@(mapcan (serapeum:op (list (alexandria:make-keyword _1) _1))
-                                  required)
-                        ,(make-keyword rest) ,rest)
-        `(make-instance ,class
-                        ,@(mapcan (serapeum:op (list (alexandria:make-keyword _1) _1))
-                                  initializer-syms)))))
-
-(defun-ct %constructor-name (class)
-  (format nil "~a-~a" '#:make class))
-
-(defmacro make-constructor (class &rest args)
-  (destructuring-bind (class &optional (constructor-name (intern (%constructor-name class))))
-      (ensure-list class)
-    `(defgeneric ,constructor-name (,@args)
-       (:method (,@args)
-         (new ',class ,@args)))))
-
 (defclass blog ()
   ((%posts :initarg :posts :accessor posts))
   (:default-initargs :posts ()))
@@ -33,7 +10,6 @@
 (defmethod print-object ((o blog) s)
   (format s "#.(make-blog ~{~s~^ ~})"
           (posts o)))
-
 
 (defclass post ()
   ((%content :initarg :content :accessor content)))
@@ -85,15 +61,13 @@
 (defclass blog-route ()
   ((%blog :initarg :blog :reader blog)))
 
-(defclass index (blog-route)
+(defclass index-route (blog-route)
   ())
-(make-constructor (index make-blog-index))
 
 (defclass post-route (blog-route)
   ((%post :initarg :post :reader post)))
-(make-constructor (post make-blog-post))
 
-(defmethod controller ((route index) params &key)
+(defmethod controller ((route index-route) params &key)
   (posts (blog route)))
 
 (defmethod controller ((route post-route) params &key)
@@ -106,7 +80,7 @@
      (:div
       (content post)))))
 
-(defmethod view ((name index) posts)
+(defmethod view ((name index-route) posts)
   (spinneret:with-html-string
     (:section
      (:h* "Blog Index")
@@ -114,13 +88,13 @@
       (loop for post in posts
             do (call-current-view post))))))
 
-(defmethod view ((name index) (post micropost))
+(defmethod view ((name index-route) (post micropost))
   (spinneret:with-html
     (:section.post.micropost
      (content post))))
 
 
-(defmethod view ((name index) (post macropost))
+(defmethod view ((name index-route) (post macropost))
   (spinneret:with-html
     (:section.post.macropost
      (:h* (:a :href (format nil "/~a" (slugify (title post)))
@@ -128,12 +102,15 @@
 
 (defun setup-routes (app blog)
   (defroutes app
-    (("/" :method :GET) (as-route (make-instance 'index :blog blog)))
-    (("/:post" :method :GET) (lambda (params)
-                               (format t "~&params: ~s~%" params)
-                               (let* ((post-name (cdr (assoc :post params)))
-                                      (route (make-instance 'post-route :post (find-post post-name blog))))
-                                 (run-route route params))))))
+    (("/" :method :GET)
+     (as-route
+      (make-instance 'index-route :blog blog)))
+    (("/:post" :method :GET)
+     (lambda (params)
+       (format t "~&params: ~s~%" params)
+       (let* ((post-name (cdr (assoc :post params)))
+              (route (make-instance 'post-route :post (find-post post-name blog))))
+         (run-route route params))))))
 
 (defvar *blog*
   (make-blog (make-micropost "first post")

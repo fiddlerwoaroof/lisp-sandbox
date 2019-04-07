@@ -8,7 +8,7 @@
     `(defun ,name ,args
        (flet (,@defs)
          ,@(loop for form in body until (and (consp form) (eql :where (car form)))
-                collect form)))))
+                 collect form)))))
 
 (defun make-zipfile-stream (fn)
   (open fn :element-type '(unsigned-byte 8)))
