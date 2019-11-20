@@ -7,6 +7,7 @@
                    :yason
                    :ningle
                    :lass))
+    (ql:quickload :fwoar.gallery)
     nil)
 
 (defpackage :fwoar.gallery
@@ -45,7 +46,9 @@
 (defmethod print-object ((o video) s)
   (format s "#.(make-video \"~a\")" (url o)))
 (defmethod print-object ((o gallery) s)
-  (format s "#.(make-gallery (~a images))" (length (images o))))
+  (if *print-readably*
+      (format s "#.(make-gallery (list ~{~a~^~%~22t~}))" (images o))
+      (format s "#.(make-gallery (~a images))" (length (images o)))))
 
 (defun make-image (url)
   (new 'image url))
@@ -95,10 +98,11 @@
     (make-image (puri:render-uri uri nil)))
   (:method ((site (eql :gfycat)) uri)
     (make-video
-     (format nil "~a.mp4"
+     (format nil "~a"
              (puri:render-uri
               (fw.lu:prog1-bind (uri (puri:copy-uri uri))
-                (setf (puri:uri-host uri) "giant.gfycat.com"))
+                (setf (puri:uri-host uri) "gfycat.com"
+                      (puri:uri-path uri) (format nil "/ifr~a" (puri:uri-path uri))))
               nil))))
   (:method ((site (eql :imgur)) uri)
     (make-image
@@ -108,7 +112,12 @@
                 (setf (puri:uri-host uri) "i.imgur.com"))
               nil))))
   (:method ((site (eql :vreddit)) uri)
-    (make-video (puri:render-uri uri nil))))
+    (make-video (puri:render-uri
+                 (fw.lu:prog1-bind (uri (puri:copy-uri uri))
+                   (setf (puri:uri-path uri)
+                         (format nil "~a/HLSPlaylist.m3u8"
+                                 (puri:uri-path uri))))
+                 nil))))
 
 (defun ensure-uri (uri)
   (etypecase uri
@@ -153,47 +162,30 @@
          :padding 0)
 
         (.gallery
-         :position relative
-         :column-count 4
-         :width 100vw
+         :display block
+         :background "#888"
          :height #(gallery-height)
          :overflow-y scroll
-         :background "#888"
+         :scroll-snap-type "y mandatory"
 
          :flex-wrap wrap)
-        ((.gallery > div)
-         :text-align center
-         :max-height 25vh
-         :overflow hidden)
+
         ((.gallery img)
-         :width 98%
-         :height 98%
-         :object-fit cover)
-        ((.gallery video)
-         :width 98%
-         :height 98%
-         :object-fit contain)
-        ((.gallery > div.expanded)
-         :position fixed
-         :top 0
-         :left 0
-         :max-height #(gallery-height)
-         :height 100%
          :width 100%
-         :background "#eee")
-        ((.gallery > (:and div.expanded :before))
-         :content " "
-         :display inline-block
-         :vertical-align middle
-         :height 100%)
-        ((.gallery > div.expanded > img)
-         :display inline-block
-         :object-fit contain
-         :vertical-align middle
-         :height (calc (- 100vh 2em)))
-        ((.gallery > div.expanded > video)
-         :display inline-block
-         :vertical-align middle)))))
+         :height 100%
+         :scroll-snap-align start
+         :object-fit contain)
+        ((.gallery video)
+         :width 100%
+         :height 100%
+         :scroll-snap-align start
+         :object-fit contain)
+        ((.gallery iframe)
+         :width 100%
+         :height 100%
+         :scroll-snap-align start
+         :object-fit contain)
+        ))))
 
 (defun gallery-js ()
   (js
@@ -238,13 +230,16 @@
 
 (define-view root ((model image))
   (spinneret:with-html
-    (:div.image
-     (:img :src (url model)))))
+    (:img :src (url model))))
 
 (define-view root ((model video))
   (spinneret:with-html
-    (:div.image
-     (:video :autoplay "autoplay" :loop "loop" (:source :src (url model) :type "video/mp4")))))
+    (if (string-contains-p "/ifr/" (url model))
+        (:iframe :src (url model))
+        (:video :autoplay "autoplay"
+                :loop "loop"
+                (:source :src (url model)
+                         :type "video/mp4")))))
 
 (defun initialize-app (app gallery)
   (defroutes app
@@ -253,8 +248,8 @@
 (defun get-reddit-items (r)
   (process-uri-list
    (mapcar (lambda (i)
-             (fw.lu:pick '("data" "url") i))
-           (fw.lu:pick '("data" "children") r))))
+             (fw.lu:dive '("data" "url") i))
+           (fw.lu:dive '("data" "children") r))))
 
 (defun main (url)
   (let* ((app (make-instance 'ningle:<app>))
