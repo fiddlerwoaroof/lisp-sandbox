@@ -42,3 +42,27 @@
     (setf (gethash derive dict)
           base)))
 
+#+(or)
+(progn
+  (defclass base ()
+    ((a :initarg :a :reader a)
+     (b :initarg :b :reader b)
+     (c :initarg :c :reader c)))
+
+  (defclass test ()
+    ((a :initarg :a :reader a)
+     (b :initarg :b :reader b)
+     (c :initarg :c :reader c))
+    (:metaclass cloneable-class))
+
+  (defmethod print-object ((o test) s)
+    (with-accessors ((a a) (b b) (c c)) o
+      (print-unreadable-object (o s :type t :identity t)
+        (handler-bind ((unbound-slot (lambda (c) (use-value :unbound c))))
+          (format s "(a: ~s b: ~s c: ~s)"
+                  (with-simple-restart (use-value "skip slot ~s" 'a)
+                    a)
+                  (with-simple-restart (use-value "skip slot ~s" 'b)
+                    b)
+                  (with-simple-restart (use-value "skip slot ~s" 'c)
+                    c)))))))
