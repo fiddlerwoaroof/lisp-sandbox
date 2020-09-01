@@ -1,5 +1,7 @@
+(in-package :cl-user)
 (defun homedir-translation (input dd)
-  (declare (ignore dd))
+  (declare (ignorable dd))
+  (format t "~&input ~s ~s~%" input dd)
   (merge-pathnames
    (make-pathname :directory
                   (list* :relative
@@ -13,19 +15,6 @@
                   :defaults input)
    (merge-pathnames "asdf-corral/Contents/Resources/"
                     (user-homedir-pathname))))
-
-(defun do-translation (input dd)
-  (declare (ignore dd))
-  (merge-pathnames
-   (make-pathname :directory
-                  (list :relative
-                        "build-cache"
-                        "root"
-                        (format nil "~{~a~^-~}"(cdr (pathname-directory input))))
-                  :defaults input)
-   (merge-pathnames "asdf-corral/Contents/Resources/"
-                    (user-homedir-pathname))))
-
 (defun in-homedir ()
   (merge-pathnames (make-pathname :directory (list :relative :wild-inferiors)
                                   :name :wild
@@ -33,16 +22,47 @@
                                   :version :wild)
                    (user-homedir-pathname)))
 
+(defun do-translation (input dd)
+  (declare (ignorable dd))
+  (merge-pathnames
+   (make-pathname :directory
+                  (list :relative
+                        "build-cache"
+                        (format nil "~{~a~^-~}"(cdr (pathname-directory input))))
+                  :defaults input)
+   (merge-pathnames "asdf-corral/Contents/Resources/"
+                    (user-homedir-pathname))))
+
+(defun dylib-translation (input dd)
+  (declare (ignorable dd))
+  (format t "~&NOTICE ME: input ~s dd ~s~%" input dd)
+  (merge-pathnames
+   (make-pathname :directory
+                  (list :relative
+                        (format nil "~{~a~^-~}"(cdr (pathname-directory input))))
+                  :defaults input)
+   (merge-pathnames "asdf-corral/Contents/Library/"
+                    (user-homedir-pathname))))
+
+(defun is-dylib ()
+  (merge-pathnames (make-pathname :directory (list :relative :wild-inferiors)
+                                  :name :wild
+                                  :type "dylib"
+                                  :version :wild)
+                   (user-homedir-pathname)))
+
 (asdf:initialize-output-translations
  `(:output-translations
-   :ignore-inherited-configuration
-   :disable-cache
-   (,(in-homedir) (:function homedir-translation))
-   ("/" (:function do-translation))))
+   #+(or):ignore-inherited-configuration
+   :inherit-configuration
+   #+(or):disable-cache
+   (,(is-dylib) (:function dylib-translation))
+   #+(or)("/" (:function do-translation))))
 
 (load "~/quicklisp/setup.lisp")
 
-(eval-when (:compile-toplevel :load-toplevel :execute)
-  (trace homedir-translation do-translation))
+(eval-when (:execute)
+  (trace dylib-translation))
 
+#+nil
 (ql:quickload :data-lens)
