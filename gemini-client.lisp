@@ -38,7 +38,7 @@
     (with-open-stream (conn (ssl-connection (puri:uri-host uri) 1965))
       (request uri conn)
       (finish-output conn)
-      (loop for read = (read-line buffer conn)
+      (loop for read = (read-sequence buffer conn)
             while (= read (length buffer))
             do (write-sequence buffer s)
             finally (write-sequence buffer conn :end read))
