@@ -37,11 +37,11 @@
 
 (function do_thing () {
   return 1;
-})
+});
 
 (function () {
   return 1;
-})
+});
 
 
 
