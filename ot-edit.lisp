@@ -11,7 +11,16 @@
 (defgeneric edit (base operation))
 (defgeneric apply-edits (base operations))
 
+(fw.lu:defclass+ editable-string ()
+  ((%string :initarg :string :accessor string-to-edit)
+   (%transform :accessor transform :initform 'identity)))
 
+
+(defmethod apply-edits ((base string) (operations sequence))
+  (string-to-edit
+   (reduce 'edit
+           (sort operations '< :key 'epoch)
+           :initial-value (editable-string base))))
 
 (fw.lu:defclass+ insert (op)
   ((%point :initarg :point :accessor point)
@@ -26,17 +35,6 @@
       (if (< new-point point)
           new-point
           (+ new-point insert-length)))))
-
-(fw.lu:defclass+ editable-string ()
-  ((%string :initarg :string :accessor string-to-edit)
-   (%transform :accessor transform :initform 'identity)))
-
-(defmethod apply-edits ((base string) (operations sequence))
-  (string-to-edit
-   (reduce 'edit
-           operations
-           :initial-value (editable-string base))))
-
 (defun do-insert (base new point)
   (let ((begin (subseq base 0 point))
         (end (subseq base point)))
