@@ -13,9 +13,12 @@
 
 
 
-(fw.lu:defclass+ insert ()
+(fw.lu:defclass+ insert (op)
   ((%point :initarg :point :accessor point)
    (%value :initarg :value :reader value)))
+(defmethod print-object ((o insert) s)
+  (print-unreadable-object (o s :type t :identity t)
+    (format s "~d/~d" (point o) (epoch o))))
 (defmethod transform-for-op ((op insert))
   (let ((point (point op))
         (insert-length (length (value op))))
