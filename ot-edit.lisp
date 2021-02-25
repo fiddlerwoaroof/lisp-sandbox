@@ -15,6 +15,8 @@
   ((%string :initarg :string :accessor string-to-edit)
    (%transform :accessor transform :initform 'identity)))
 
+(defclass op ()
+  ((%epoch :reader epoch :initform (let ((c (load-time-value (vector 0)))) (incf (elt c 0))))))
 
 (defmethod apply-edits ((base string) (operations sequence))
   (string-to-edit
