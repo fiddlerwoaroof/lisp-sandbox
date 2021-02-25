@@ -78,8 +78,7 @@
 
 
 (defun sample ()
-  "ac"
-  '(insert "b" 1)
-  "abc"
-  '(insert "d" 2)
-  "abdc")
+  (assert (equal (apply-edits "ac" (list (insert 0 "z")
+                                         (insert 1 "b")
+                                         (insert 2 "d")))
+                 "zabcd")))
