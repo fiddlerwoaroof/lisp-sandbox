@@ -10,6 +10,12 @@
   (/ (* deg pi)
      180.0d0))
 
+(defun rand-min-max (min max)
+  (+ min
+     (* (- max min)
+        (random 1.0d0))))
+
+
 (defstruct (size (:type vector))
   width height)
 (defstruct (color (:type vector))
@@ -18,6 +24,23 @@
                  (:constructor vec3 (x y z))
                  (:conc-name v3-))
   x y z)
+
+(defun rand-vec3 ()
+  (vec3 (random 1.0d0)
+        (random 1.0d0)
+        (random 1.0d0)))
+
+(defun rand-vec3-min-max (min max)
+  (vec3 (rand-min-max min max)
+        (rand-min-max min max)
+        (rand-min-max min max)))
+
+(declaim (inline vec+ vec* vec- vec/ random-in-unit-sphere))
+(defun random-in-unit-sphere ()
+  (loop for p = (rand-vec3-min-max -1.0d0 1.0d0)
+        while (>= (length-squared p)
+                  1)
+        finally (return p)))
 
 (defun vec+ (vec1 vec2)
   (declare (optimize (speed 3)))
@@ -114,13 +137,26 @@
          nil)
 
 (defvar *color-depth* 255)
+
+(defun clamp (x min max)
+  (cond ((< x min) min)
+        ((> x max) max)
+        (t x)))
+
+(defvar *samples-per-pixel* 1)
 (defun format-color (s v _ __)
   #.(ig _ __)
-  (fwoar.lisputils:vector-destructuring-bind (r g b) v
-    (format s "~4d ~4d ~4d"
-            (round (* *color-depth* r))
-            (round (* *color-depth* g))
-            (round (* *color-depth* b)))))
+  (let ((scale (/ *samples-per-pixel*)))
+    (flet ((scale-to-depth (c)
+             (floor
+              (* *color-depth*
+                 (clamp (sqrt (* c scale))
+                        0.0d0 0.999d0)))))
+      (fwoar.lisputils:vector-destructuring-bind (r g b) v
+        (let ((r (scale-to-depth r))
+              (g (scale-to-depth g))
+              (b (scale-to-depth b)))
+          (format s "~4d ~4d ~4d" r g b))))))
 
 (defun write-colors (stream colors columns)
   (let ((intermediate ())
@@ -149,6 +185,7 @@
 (fw.lu:defclass+ hit-record ()
   ((p :initarg :p :reader .p)
    (time :initarg :time :reader .time)
+   (thing :initarg :thing :accessor .thing)
    (normal :initarg :normal :accessor .normal :initform ())
    (front-face :initarg :front-face :accessor .front-face :initform ())))
 (defun set-face-normal (hit-record r outward-normal)
@@ -165,7 +202,13 @@
   ())
 (fw.lu:defclass+ sphere (hittable)
   ((center :initarg :center)
-   (radius :initarg :radius)))
+   (radius :initarg :radius)
+   (material-color :initarg :color
+                   :reader material-color
+                   :initform (vec3 (random 1.0d0)
+                                   (random 1.0d0)
+                                   (random 1.0d0)))))
+
 (defgeneric hit (thing ray t-min t-max)
   (:method ((things list) (r ray) (t-min real) (t-max real))
     (let (temp-rec
@@ -211,7 +254,7 @@
                                                     radius)))
 
                          (values t
-                                 (set-face-normal (hit-record p root)
+                                 (set-face-normal (hit-record p root sphere)
                                                   r
                                                   outward-normal)))))))))
 
@@ -229,15 +272,27 @@
           (/ (- (- half-b) (sqrt discriminant))
              a)))))
 
-(defgeneric ray-color (ray world)
-  (:method ((ray ray) world)
+(defgeneric ray-color (ray world depth)
+  (:method :around (r w (depth integer))
+    (if (<= depth 0)
+        (vec3 1.0d0 1.0d0 1.0d0)
+        (call-next-method)))
+  (:method ((ray ray) world (depth integer))
     (multiple-value-bind (hit-p rec)
-        (hit world ray 0 infinity)
+        (hit world ray 0.001d0 infinity)
       (when hit-p
-        (return-from ray-color
-          (vec* 0.5
-                (vec+ #(1 1 1)
-                      (.normal rec)))))
+        (let ((target (vec+ (vec+ (.p rec)
+                                  (.normal rec))
+                            (random-in-unit-sphere))))
+          (return-from ray-color
+            #+(or)
+            (vec* (material-color (.thing rec)))
+            (vec* 0.75
+                  (ray-color (ray (.p rec)
+                                  (vec- target
+                                        (.p rec)))
+                             world
+                             (1- depth))))))
       (with-slots (direction) ray
         (let* ((unit-direction (unit-vector direction))
                (it (+ (* 0.5 (v3-y unit-direction))
@@ -247,24 +302,60 @@
                 (vec* it
                       #(0.5d0 0.7d0 1.0d0))))))))
 
-(defun raytrace (out)
-  (let* ((world (list (sphere #(0 0 -1) 0.5)
-                      (sphere #(0 -100.5 -1) 100)))
-         (aspect-ratio (/ 16.0d0 9.0d0))
-         (image-width 400)
+
+(defclass camera ()
+  ((origin :initarg :origin :reader origin)
+   (lower-left-corner :initarg :lower-left-corner :reader lower-left-corner)
+   (horizontal :initarg :horizontal :reader horizontal)
+   (vertical :initarg :vertical :reader vertical)))
+
+(defun camera (&key
+                 (aspect-ratio 16/9)
+                 (viewport-height 4.0d0)
+                 (viewport-width (* aspect-ratio viewport-height))
+                 (focal-length 0.8d0))
+  (let ((origin (vec3 0d0 0.0d0 0.0d0))
+        (horizontal (vec3 viewport-width 0.0d0 0.0d0))
+        (vertical (vec3 0.0d0 viewport-height 0.0d0)))
+    (make-instance 'camera
+                   :origin origin
+                   :horizontal horizontal
+                   :vertical vertical
+                   :lower-left-corner (vec- (vec- (vec- origin
+                                                        (vec/ horizontal 2))
+                                                  (vec/ vertical 2))
+                                            (vec3 0 0 focal-length)))))
+(defgeneric get-ray (camera u v)
+  (:method ((camera camera) (u real) (v real))
+    (with-slots (origin horizontal vertical lower-left-corner) camera
+      (macrolet ((-> (v &body forms)
+                   (if forms
+                       `(-> (,(caar forms) ,v ,@(cdar forms))
+                            ,@(cdr forms))
+                       v)))
+
+
+        (ray origin
+             (-> lower-left-corner
+                 (vec+ (vec* u horizontal))
+                 (vec+ (vec* v vertical))
+                 (vec- origin)))))))
+
+(defun raytrace (out &optional (*samples-per-pixel* 10) (image-width 400) (max-depth 50))
+  (let* ((world (append (list (sphere #(0 0 -1) 0.5
+                                      #(0.5 0.5 0.0)))
+                        #+(or)
+                        (loop repeat 10
+                              collect (sphere (vector (rand-min-max -1 1)
+                                                      (rand-min-max -1 1)
+                                                      (rand-min-max -1.0d0 -.5d0))
+                                              (rand-min-max 0.2 0.5)))
+                        (list (sphere #(0 -100.5 -1) 100
+                                      #(0.5 0.5 0.5)))))
+         (aspect-ratio 4/3)
          (image-height (* (floor (/ image-width aspect-ratio))))
 
-         (viewport-height 2.0d0)
-         (viewport-width (* aspect-ratio viewport-height))
-         (focal-length 1.0d0)
-
-         (origin (vec3 0 0 0))
-         (horizontal (vec3 viewport-width 0 0))
-         (vertical (vec3 0 viewport-height 0))
-         (lower-left-corner (vec- (vec- (vec- origin
-                                              (vec/ horizontal 2))
-                                        (vec/ vertical 2))
-                                  (vec3 0 0 focal-length))))
+         (camera (camera)))
     (alexandria:with-output-to-file (s out :if-exists :supersede)
       (call-with-ppm-header s (make-size :width image-width :height image-height)
                             (lambda (s)
@@ -275,20 +366,28 @@
                                                                "~&Scanlines remaining: ~d ~s~%"
                                                                j
                                                                (local-time:now))
+                                                       (force-output s)
                                                     do
                                                        (loop for i from 0 below image-width
                                                              for u = (/ (* 1.0d0 i)
                                                                         (1- image-width))
                                                              for v = (/ (* 1.0d0 j)
                                                                         (1- image-height))
-                                                             for r = (ray origin
-                                                                          (vec- (vec+ (vec+ lower-left-corner
-                                                                                            (vec* u
-                                                                                                  horizontal))
-                                                                                      (vec* v
-                                                                                            vertical))
-                                                                                origin))
-                                                             for color = (ray-color r world)
+                                                             for r = (get-ray camera u v)
+                                                             for color = (loop for s below *samples-per-pixel*
+                                                                               for u = (/ i
+                                                                                          (1- image-width))
+                                                                                 then (/ (+ i (random 1.0d0))
+                                                                                         (1- image-width))
+                                                                               for v = (/ j
+                                                                                          (1- image-height))
+                                                                                 then (/ (+ j (random 1.0d0))
+                                                                                         (1- image-height))
+                                                                               for r = (get-ray camera u v)
+                                                                               for pixel-color = (ray-color r world max-depth)
+                                                                                 then (vec+ pixel-color
+                                                                                            (ray-color r world max-depth))
+                                                                               finally (return pixel-color))
                                                              collect
                                                              (funcall c color))))
                                             image-width))
