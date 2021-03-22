@@ -46,7 +46,7 @@
                                                (create-image-data 1 1)))
                                 (ws (ps:new (-web-socket (+ "ws://"
                                                             (ps:@ location host)
-                                                            ":5000/ws")))))
+                                                            "/ws")))))
                            (ps:chain ws
                                      (add-event-listener
                                       "message"
