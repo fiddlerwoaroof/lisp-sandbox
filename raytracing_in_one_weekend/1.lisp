@@ -41,6 +41,8 @@
         while (>= (length-squared p)
                   1)
         finally (return p)))
+(defun random-unit-vector ()
+  (unit-vector (random-in-unit-sphere)))
 
 (defun vec+ (vec1 vec2)
   (declare (optimize (speed 3)))
@@ -144,21 +146,30 @@
         (t x)))
 
 (defvar *samples-per-pixel* 1)
-(defun format-color (s v _ __)
-  #.(ig _ __)
+(defun scale-to-8bit (color)
   (let ((scale (/ *samples-per-pixel*)))
     (flet ((scale-to-depth (c)
              (floor
               (* *color-depth*
                  (clamp (sqrt (* c scale))
                         0.0d0 0.999d0)))))
-      (fwoar.lisputils:vector-destructuring-bind (r g b) v
+      (fwoar.lisputils:vector-destructuring-bind (r g b) color
         (let ((r (scale-to-depth r))
               (g (scale-to-depth g))
               (b (scale-to-depth b)))
-          (format s "~4d ~4d ~4d" r g b))))))
+          (vec3 r g b))))))
+
+(defun format-color (s v _ __)
+  #.(ig _ __)
+  (fw.lu:vector-destructuring-bind (r g b) (scale-to-8bit v)
+    (format s "~4d ~4d ~4d" r g b)))
 
 (defun write-colors (stream colors columns)
+  (funcall colors
+           (lambda (color pos)
+             (fwoar.lisp-sandbox.canvas-server:send-update
+              (scale-to-8bit color) pos)))
+  #+(or)
   (let ((intermediate ())
         (idx 0))
     (funcall colors
@@ -186,6 +197,7 @@
   ((p :initarg :p :reader .p)
    (time :initarg :time :reader .time)
    (thing :initarg :thing :accessor .thing)
+   (material :initarg :material :accessor .material)
    (normal :initarg :normal :accessor .normal :initform ())
    (front-face :initarg :front-face :accessor .front-face :initform ())))
 (defun set-face-normal (hit-record r outward-normal)
@@ -207,7 +219,8 @@
                    :reader material-color
                    :initform (vec3 (random 1.0d0)
                                    (random 1.0d0)
-                                   (random 1.0d0)))))
+                                   (random 1.0d0)))
+   (material :initarg :material :reader .material :initform (lambertian-material (random 0.8)))))
 
 (defgeneric hit (thing ray t-min t-max)
   (:method ((things list) (r ray) (t-min real) (t-max real))
@@ -225,6 +238,7 @@
         (values hit-anything
                 temp-rec))))
   (:method ((sphere sphere) (r ray) (t-min real) (t-max real))
+    (declare (optimize (speed 3)))
     (uiop:nest (with-slots ((%center center) (%radius radius)) sphere)
                (let ((center %center) (radius %radius)))
                (with-slots ((%origin origin) (%direction direction)) r)
@@ -254,7 +268,7 @@
                                                     radius)))
 
                          (values t
-                                 (set-face-normal (hit-record p root sphere)
+                                 (set-face-normal (hit-record p root sphere (.material sphere))
                                                   r
                                                   outward-normal)))))))))
 
@@ -272,6 +286,26 @@
           (/ (- (- half-b) (sqrt discriminant))
              a)))))
 
+(defgeneric scatter (material ray-in rec))
+
+(defun original-material (rec world depth)
+  (vec* 0.5
+        (vec+ #(1 1 1)
+              (.normal rec))))
+
+(defun lambertian-material (albedo)
+  (lambda (rec world depth)
+    (let ((target (vec+ (vec+ (.p rec)
+                              (.normal rec))
+                        (random-unit-vector))))
+      (vec* (material-color (.thing rec))
+            (vec* albedo
+                  (ray-color (ray (.p rec)
+                                  (vec- target
+                                        (.p rec)))
+                             world
+                             (1- depth)))))))
+
 (defgeneric ray-color (ray world depth)
   (:method :around (r w (depth integer))
     (if (<= depth 0)
@@ -281,18 +315,8 @@
     (multiple-value-bind (hit-p rec)
         (hit world ray 0.001d0 infinity)
       (when hit-p
-        (let ((target (vec+ (vec+ (.p rec)
-                                  (.normal rec))
-                            (random-in-unit-sphere))))
-          (return-from ray-color
-            #+(or)
-            (vec* (material-color (.thing rec)))
-            (vec* 0.75
-                  (ray-color (ray (.p rec)
-                                  (vec- target
-                                        (.p rec)))
-                             world
-                             (1- depth))))))
+        (return-from ray-color
+          (funcall (.material rec) rec world depth)))
       (with-slots (direction) ray
         (let* ((unit-direction (unit-vector direction))
                (it (+ (* 0.5 (v3-y unit-direction))
@@ -341,81 +365,130 @@
                  (vec+ (vec* v vertical))
                  (vec- origin)))))))
 
+(declaim (notinline u-loop))
+(defun u-loop (j image-width image-height camera world max-depth c)
+  (loop for i from 0 below image-width
+        for u = (/ (* 1.0d0 i)
+                   (1- image-width))
+        for v = (/ (* 1.0d0 j)
+                   (1- image-height))
+        for r = (get-ray camera u v)
+        for color = (loop for s below *samples-per-pixel*
+                          for u = (/ i
+                                     (1- image-width))
+                            then (/ (+ i (random 1.0d0))
+                                    (1- image-width))
+                          for v = (/ j
+                                     (1- image-height))
+                            then (/ (+ j (random 1.0d0))
+                                    (1- image-height))
+                          for r = (get-ray camera u v)
+                          for pixel-color = (ray-color r world max-depth)
+                            then (vec+ pixel-color
+                                       (ray-color r world max-depth))
+                          finally (return pixel-color))
+        do (funcall c color
+                    (list i
+                          (- image-height j)))))
+
+(defvar *thread-queues*
+  (make-array 8))
+
+(defun start-worker (id)
+  (let ((mailbox (sb-concurrency:make-mailbox :name (format nil "mailbox-~d" id))))
+    (setf (aref *thread-queues* id) mailbox)
+    (bt:make-thread
+     (lambda ()
+       (loop
+         (destructuring-bind (*samples-per-pixel*
+                              j image-width image-height camera world max-depth c)
+             (sb-concurrency:receive-message mailbox)
+           (u-loop j image-width image-height camera world max-depth c))))
+     :name (format nil "worker-~d" id))))
+
+(defun start-workers ()
+  (loop for x below 8
+        collect (start-worker x)))
+
+(defun shuffle (seq)
+  (let ((arr (map 'vector 'identity seq)))
+    (loop for i from (1- (length arr)) downto 1
+          for j = (random i)
+          do (rotatef (aref arr i)
+                      (aref arr j))
+          finally (return (coerce arr (type-of seq))))))
+
 (defun raytrace (out &optional (*samples-per-pixel* 10) (image-width 400) (max-depth 50))
   (let* ((world (append (list (sphere #(0 0 -1) 0.5
-                                      #(0.5 0.5 0.0)))
-                        #+(or)
-                        (loop repeat 10
-                              collect (sphere (vector (rand-min-max -1 1)
-                                                      (rand-min-max -1 1)
-                                                      (rand-min-max -1.0d0 -.5d0))
-                                              (rand-min-max 0.2 0.5)))
+                                      #(0.5 0.5 0.0)
+                                      #'original-material))
+                        (loop repeat 30
+                              collect (sphere (vector (rand-min-max -1.5 1.5)
+                                                      (rand-min-max -1.5 1.5)
+                                                      (rand-min-max -1.5d0 -1.0d0))
+                                              (rand-min-max 0.2 0.5)
+                                              (vector (random 1.0d0)
+                                                      (random 1.0d0)
+                                                      (random 1.0d0))
+                                              (if (= 1 (random 2))
+                                                  (lambertian-material
+                                                   (rand-min-max 0.25 0.75))
+                                                  #'original-material)))
                         (list (sphere #(0 -100.5 -1) 100
-                                      #(0.5 0.5 0.5)))))
+                                      #(0.5 0.5 0.5)
+                                      (lambertian-material 0.2)))))
          (aspect-ratio 4/3)
          (image-height (* (floor (/ image-width aspect-ratio))))
 
          (camera (camera)))
-    (alexandria:with-output-to-file (s out :if-exists :supersede)
-      (call-with-ppm-header s (make-size :width image-width :height image-height)
-                            (lambda (s)
-                              (write-colors s
-                                            (lambda (c)
-                                              (loop for j from (1- image-height) downto 0
-                                                    do (format *trace-output*
-                                                               "~&Scanlines remaining: ~d ~s~%"
-                                                               j
-                                                               (local-time:now))
-                                                       (force-output s)
-                                                    do
-                                                       (loop for i from 0 below image-width
-                                                             for u = (/ (* 1.0d0 i)
-                                                                        (1- image-width))
-                                                             for v = (/ (* 1.0d0 j)
-                                                                        (1- image-height))
-                                                             for r = (get-ray camera u v)
-                                                             for color = (loop for s below *samples-per-pixel*
-                                                                               for u = (/ i
-                                                                                          (1- image-width))
-                                                                                 then (/ (+ i (random 1.0d0))
-                                                                                         (1- image-width))
-                                                                               for v = (/ j
-                                                                                          (1- image-height))
-                                                                                 then (/ (+ j (random 1.0d0))
-                                                                                         (1- image-height))
-                                                                               for r = (get-ray camera u v)
-                                                                               for pixel-color = (ray-color r world max-depth)
-                                                                                 then (vec+ pixel-color
-                                                                                            (ray-color r world max-depth))
-                                                                               finally (return pixel-color))
-                                                             collect
-                                                             (funcall c color))))
-                                            image-width))
-                            (round *color-depth*)))))
+    (let ((mailbox (sb-concurrency:make-mailbox)))
+      (loop for j in (shuffle (loop for x from 0 to image-height collect x))
+            do
+               (sb-concurrency:send-message
+                (aref *thread-queues*
+                      (mod j
+                           (length *thread-queues*)))
+                (list *samples-per-pixel*
+                      j image-width
+                      image-height camera
+                      world max-depth
+                      (lambda (a b)
+                        (sb-concurrency:send-message
+                         mailbox
+                         (list a b))))))
+      (write-colors nil
+                    (lambda (c)
+                      (loop with messages = 0
+                            for it = (sb-concurrency:receive-message mailbox :timeout 2)
+                            while it
+                            do (destructuring-bind (color pos) it
+                                 (funcall c color pos))))
+                    image-width))))
 
 (defun sample-image (out)
   (let ((image-width 256)
         (image-height 256))
     (alexandria:with-output-to-file (s out :if-exists :supersede)
-      (call-with-ppm-header s (make-size :width image-width :height image-height)
-                            (lambda (s)
-                              (write-colors s
-                                            (lambda (c)
-                                              (loop for j from (1- image-height) downto 0
-                                                    do (format *trace-output*
-                                                               "~&Scanlines remaining: ~d ~s~%"
-                                                               j
-                                                               (local-time:now))
-                                                    do
-                                                       (loop for i from 0 below image-width
-                                                             collect
-                                                             (let* ((r (/ (* i 1.0d0)
-                                                                          (1- image-width)))
-                                                                    (g (/ (* j 1.0d0)
-                                                                          (1- image-height)))
-                                                                    (b 0.15d0))
-                                                               (funcall c (make-color :r r
-                                                                                      :g g
-                                                                                      :b b))))))
-                                            image-width))
-                            (1- #.(expt 2 8))))))
+      (call-with-ppm-header
+       s (make-size :width image-width :height image-height)
+       (lambda (s)
+         (write-colors
+          s (lambda (c)
+              (loop for j from (1- image-height) downto 0
+                    do (format *trace-output*
+                               "~&Scanlines remaining: ~d ~s~%"
+                               j
+                               (local-time:now))
+                    do
+                       (loop for i from 0 below image-width
+                             collect
+                             (let* ((r (/ (* i 1.0d0)
+                                          (1- image-width)))
+                                    (g (/ (* j 1.0d0)
+                                          (1- image-height)))
+                                    (b 0.15d0))
+                               (funcall c (make-color :r r
+                                                      :g g
+                                                      :b b))))))
+          image-width))
+       (1- #.(expt 2 8))))))
