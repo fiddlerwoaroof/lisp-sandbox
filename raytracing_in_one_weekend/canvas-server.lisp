@@ -44,7 +44,9 @@
                                                    (get-context "2d")))
                                 (i-d (ps:chain context
                                                (create-image-data 1 1)))
-                                (ws (ps:new (-web-socket "ws://localhost:5000/ws"))))
+                                (ws (ps:new (-web-socket (+ "ws://"
+                                                            (ps:@ location host)
+                                                            ":5000/ws")))))
                            (ps:chain ws
                                      (add-event-listener
                                       "message"
