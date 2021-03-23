@@ -35,7 +35,7 @@
                   (spinneret:with-html-string
                     (:html
                      (:body
-                      (:canvas#out :width 1000 :height 1000)
+                      (:canvas#out :width 2000 :height 2000)
                       (:script
                        (ps:ps
                          (let* ((canvas (ps:chain document

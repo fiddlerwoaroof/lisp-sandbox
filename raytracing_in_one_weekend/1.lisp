@@ -35,7 +35,7 @@
         (rand-min-max min max)
         (rand-min-max min max)))
 
-(declaim (inline vec+ vec* vec- vec/ random-in-unit-sphere))
+(declaim (inline vec+ vec* vec- vec/ random-in-unit-sphere negate))
 (defun random-in-unit-sphere ()
   (loop for p = (rand-vec3-min-max -1.0d0 1.0d0)
         while (>= (length-squared p)
@@ -97,6 +97,12 @@
               (vec3 (* vec1 a1)
                     (* vec1 b1)
                     (* vec1 c1))))))
+(defun negate (vec)
+  (fw.lu:vector-destructuring-bind (x y z) vec
+    (vec3 (- x)
+          (- y)
+          (- z))))
+
 (defun vec/ (vec it)
   (declare (optimize (speed 3)))
   (vec* (/ 1.0 it)
@@ -127,6 +133,14 @@
 (defun unit-vector (v)
   (vec/ v
         (vec-length v)))
+
+(declaim (inline near-zero))
+(defun near-zero (vec)
+  (fw.lu:vector-destructuring-bind (x y z) vec
+    (let* ((s 1.0d-8))
+      (and (< (abs x) s)
+           (< (abs y) s)
+           (< (abs z) s)))))
 
 (defun call-with-ppm-header (stream size callback &optional (colors 255))
   (format stream "P3~%~d ~d~%~d~%"
@@ -220,7 +234,9 @@
                    :initform (vec3 (random 1.0d0)
                                    (random 1.0d0)
                                    (random 1.0d0)))
-   (material :initarg :material :reader .material :initform (lambertian-material (random 0.8)))))
+   (material :initarg :material
+             :reader .material
+             :initform (lambertian-material (random 0.8)))))
 
 (defgeneric hit (thing ray t-min t-max)
   (:method ((things list) (r ray) (t-min real) (t-max real))
@@ -288,23 +304,113 @@
 
 (defgeneric scatter (material ray-in rec))
 
-(defun original-material (rec world depth)
+(defun original-material (rec ray world depth)
+  (declare (ignore ray world depth))
   (vec* 0.5
         (vec+ #(1 1 1)
               (.normal rec))))
 
 (defun lambertian-material (albedo)
-  (lambda (rec world depth)
-    (let ((target (vec+ (vec+ (.p rec)
-                              (.normal rec))
-                        (random-unit-vector))))
-      (vec* (material-color (.thing rec))
-            (vec* albedo
-                  (ray-color (ray (.p rec)
-                                  (vec- target
-                                        (.p rec)))
-                             world
-                             (1- depth)))))))
+  (lambda (rec ray world depth)
+    (declare (ignore ray))
+    (let ((scatter-direction (vec+ (.normal rec)
+                                   (random-unit-vector))))
+      (when (near-zero scatter-direction)
+        (setf scatter-direction (.normal rec)))
+
+      (vec* albedo
+            (ray-color (ray (.p rec)
+                            scatter-direction)
+                       world
+                       (1- depth))))))
+
+(defun reflect (v n)
+  (vec- v
+        (vec* 2.0d0
+              (vec* (dot v n)
+                    n))))
+
+(defun refract (uv n eta*/eta)
+  (let* ((cos-theta (min 1.0d0
+                         (dot (negate uv)
+                              n)))
+         (out-perp (vec* eta*/eta
+                         (vec+ uv
+                               (vec* cos-theta
+                                     n))))
+         (out-parallel (vec* (- (sqrt (abs (- 1.0d0
+                                              (length-squared out-perp)))))
+                             n)))
+    (vec+ out-perp out-parallel)))
+
+(defun metal-material (albedo)
+  (lambda (rec ray world depth)
+    (with-slots (direction) ray
+      (let* ((reflected (reflect (unit-vector direction)
+                                 (.normal rec)))
+             (scattered (ray (.p rec) reflected)))
+        (vec* albedo
+              (ray-color scattered
+                         world
+                         (1- depth)))))))
+
+(defun fuzzy-metal-material (albedo fuzz)
+  (lambda (rec ray world depth)
+    (with-slots (direction) ray
+      (let* ((reflected (reflect (unit-vector direction)
+                                 (.normal rec)))
+             (scattered (ray (.p rec)
+                             (vec+ reflected
+                                   (vec* fuzz
+                                         (random-in-unit-sphere))))))
+        (vec* albedo
+              (ray-color scattered
+                         world
+                         (1- depth)))))))
+
+(defun reflectance (cosine ref-idx)
+  (let* ((r0 (/ (- 1 ref-idx)
+                (+ 1 ref-idx)))
+         (r0 (* r0 r0)))
+    (+ r0
+       (* (- 1 r0)
+          (expt (- 1 cosine)
+                5)))))
+
+(defun dielectric-material (ir &optional (fuzz 0))
+  (lambda (rec ray world depth)
+    (with-slots (direction) ray
+      (let* ((attenuation (vec3 1.0d0 1.0d0 1.0d0))
+             (refraction-ratio (if (.front-face rec)
+                                   (/ 1.0d0 ir)
+                                   ir))
+             (unit-direction (unit-vector direction))
+             (normal (.normal rec))
+             (cos-theta (min 1.0d0
+                             (dot (negate unit-direction)
+                                  normal)))
+             (sin-theta (sqrt (- 1
+                                 (* cos-theta cos-theta))))
+             (cannot-refract (> (* refraction-ratio
+                                   sin-theta)
+                                1.0d0))
+             (direction (if (or cannot-refract
+                                (> (reflectance cos-theta
+                                                refraction-ratio)
+                                   (random 1.0d0)))
+                            (reflect unit-direction
+                                     normal)
+                            (refract unit-direction
+                                     normal
+                                     refraction-ratio)))
+             (scattered (ray (.p rec)
+                             (vec+ direction
+                                   (vec* fuzz
+                                         (random-in-unit-sphere))))))
+        (vec* attenuation
+              (ray-color scattered
+                         world
+                         (1- depth)))))))
 
 (defgeneric ray-color (ray world depth)
   (:method :around (r w (depth integer))
@@ -316,7 +422,7 @@
         (hit world ray 0.001d0 infinity)
       (when hit-p
         (return-from ray-color
-          (funcall (.material rec) rec world depth)))
+          (funcall (.material rec) rec ray world depth)))
       (with-slots (direction) ray
         (let* ((unit-direction (unit-vector direction))
                (it (+ (* 0.5 (v3-y unit-direction))
@@ -335,9 +441,9 @@
 
 (defun camera (&key
                  (aspect-ratio 16/9)
-                 (viewport-height 4.0d0)
+                 (viewport-height 2.0d0)
                  (viewport-width (* aspect-ratio viewport-height))
-                 (focal-length 0.8d0))
+                 (focal-length 1.0d0))
   (let ((origin (vec3 0d0 0.0d0 0.0d0))
         (horizontal (vec3 viewport-width 0.0d0 0.0d0))
         (vertical (vec3 0.0d0 viewport-height 0.0d0)))
@@ -406,8 +512,8 @@
            (u-loop j image-width image-height camera world max-depth c))))
      :name (format nil "worker-~d" id))))
 
-(defun start-workers ()
-  (loop for x below 8
+(defun start-workers (&optional (n 8))
+  (loop for x below n
         collect (start-worker x)))
 
 (defun shuffle (seq)
@@ -419,25 +525,167 @@
           finally (return (coerce arr (type-of seq))))))
 
 (defun raytrace (out &optional (*samples-per-pixel* 10) (image-width 400) (max-depth 50))
-  (let* ((world (append (list (sphere #(0 0 -1) 0.5
+  (let* ((world (append (list (sphere #(0 0 -1) .5
                                       #(0.5 0.5 0.0)
-                                      #'original-material))
+                                      (dielectric-material 0.4)
+                                      #+(or)
+                                      (lambda (rec ray world depth)
+                                        (declare (ignore rec world depth))
+                                        (with-slots (direction) ray
+                                          (fw.lu:vector-destructuring-bind
+                                              (x y z) (unit-vector direction)
+                                            (vector (abs x)
+                                                    (abs y)
+                                                    (abs z)))))))
                         (loop repeat 30
-                              collect (sphere (vector (rand-min-max -1.5 1.5)
-                                                      (rand-min-max -1.5 1.5)
-                                                      (rand-min-max -1.5d0 -1.0d0))
+                              collect (sphere (vector (rand-min-max -3 3)
+                                                      (rand-min-max -0.5 2)
+                                                      (rand-min-max -1.5d0 -0.5d0))
                                               (rand-min-max 0.2 0.5)
                                               (vector (random 1.0d0)
                                                       (random 1.0d0)
                                                       (random 1.0d0))
-                                              (if (= 1 (random 2))
-                                                  (lambertian-material
-                                                   (rand-min-max 0.25 0.75))
-                                                  #'original-material)))
+                                              (case (random 5)
+                                                (0 (lambertian-material
+                                                    (rand-min-max 0.25 0.75)))
+                                                (1 (metal-material
+                                                    (rand-min-max 0.25 0.75)))
+                                                (2 (fuzzy-metal-material
+                                                    (rand-min-max 0.25 0.75)
+                                                    (rand-min-max 0.01 0.75)))
+                                                (3 (dielectric-material
+                                                    (rand-min-max 0.1 2.4)))
+                                                (4 #'original-material)
+                                                (5
+                                                 (lambda (rec ray world depth)
+                                                   (declare (ignore rec world depth))
+                                                   (vector 1d0 1d0 1d0)
+                                                   #+(or)
+                                                   (with-slots (direction) ray
+                                                     (fw.lu:vector-destructuring-bind
+                                                         (x y z) (unit-vector direction)
+                                                       (vector (abs x)
+                                                               (abs y)
+                                                               (abs z)))))))))
+                        ;; #+(or)
                         (list (sphere #(0 -100.5 -1) 100
                                       #(0.5 0.5 0.5)
                                       (lambertian-material 0.2)))))
          (aspect-ratio 4/3)
+         (image-height (* (floor (/ image-width aspect-ratio))))
+
+         (camera (camera :focal-length 1.0d0)))
+    (let ((mailbox (sb-concurrency:make-mailbox)))
+      (loop for j in (shuffle (loop for x from 0 to image-height collect x))
+            do
+               (sb-concurrency:send-message
+                (aref *thread-queues*
+                      (mod j
+                           (length *thread-queues*)))
+                (list *samples-per-pixel*
+                      j image-width
+                      image-height camera
+                      world max-depth
+                      (lambda (a b)
+                        (sb-concurrency:send-message
+                         mailbox
+                         (list a b))))))
+      (write-colors nil
+                    (lambda (c)
+                      (loop with messages = 0
+                            for it = (sb-concurrency:receive-message mailbox :timeout 2)
+                            while it
+                            do (destructuring-bind (color pos) it
+                                 (funcall c color pos))))
+                    image-width))))
+
+(defun refraction-scene
+    (out &optional (*samples-per-pixel* 10) (image-width 400) (max-depth 50))
+  (let* ((world (list (sphere #(0 0 -1) .5
+                              #(0.5 0.5 0.0)
+                              (lambertian-material #(0.7 0.3 0.3)))
+                      (sphere #(-1 0 -1) 0.5
+                              #(0 0 0)
+                              (dielectric-material 1.5))
+                      (sphere #(-1 0 -1) -0.4
+                              #(0 0 0)
+                              (dielectric-material 1.5))
+                      (sphere #(-1 0 -1) -0.2
+                              #(0 0 0)
+                              (lambertian-material
+                               #(0.8 0.6 0.2)))
+                      #+(or)
+                      (sphere #(1 0 -1) 0.5
+                              #(0 0 0)
+                              (dielectric-material 2.4))
+                      #+(or)
+                      (sphere #(-2 0 -1) 0.5
+                              #(0 0 0)
+                              (metal-material #(0.8 0.8 0.8)))
+                      (sphere #(1 0 -1) 0.5
+                              #(0 0 0)
+                              (metal-material #(0.8 0.6 0.2)))
+                      (sphere #(0 -100.5 -1) 100
+                              #(0.5 0.5 0.5)
+                              (lambertian-material #(0.8 0.8 0.0)))))
+         (aspect-ratio 16/9)
+         (image-height (* (floor (/ image-width aspect-ratio))))
+
+         (camera (camera)))
+    (let ((mailbox (sb-concurrency:make-mailbox)))
+      (loop for j in (shuffle (loop for x from 0 to image-height collect x))
+            do
+               (sb-concurrency:send-message
+                (aref *thread-queues*
+                      (mod j
+                           (length *thread-queues*)))
+                (list *samples-per-pixel*
+                      j image-width
+                      image-height camera
+                      world max-depth
+                      (lambda (a b)
+                        (sb-concurrency:send-message
+                         mailbox
+                         (list a b))))))
+      (write-colors nil
+                    (lambda (c)
+                      (loop with messages = 0
+                            for it = (sb-concurrency:receive-message mailbox :timeout 2)
+                            while it
+                            do (destructuring-bind (color pos) it
+                                 (funcall c color pos))))
+                    image-width))))
+
+(defun refraction-scene1
+    (out &optional (*samples-per-pixel* 10) (image-width 400) (max-depth 50))
+  (let* ((world (list (sphere #(0 0 -1) 1
+                              #(0.5 0.5 0.0)
+                              (dielectric-material 2.4))
+                      (sphere #(-0.5 0 -1) 0.5
+                              #(0 0 0)
+                              (dielectric-material 1.5 0.2))
+                      (sphere #(-0.5 0 -1) -0.4
+                              #(0 0 0)
+                              (dielectric-material 1.5 0.2))
+                      (sphere #(-0.5 0 -1) -0.2
+                              #(0 0 0)
+                              (metal-material
+                               #(0.8 0.6 0.2)))
+                      #+(or)
+                      (sphere #(1 0 -1) 0.5
+                              #(0 0 0)
+                              (dielectric-material 2.4))
+                      #+(or)
+                      (sphere #(-2 0 -1) 0.5
+                              #(0 0 0)
+                              (metal-material #(0.8 0.8 0.8)))
+                      (sphere #(0.5 0 -1) 0.5
+                              #(0 0 0)
+                              (metal-material #(0.8 0.6 0.2)))
+                      (sphere #(0 -100.5 -1) 100
+                              #(0.5 0.5 0.5)
+                              (lambertian-material #(0.8 0.8 0.0)))))
+         (aspect-ratio 16/9)
          (image-height (* (floor (/ image-width aspect-ratio))))
 
          (camera (camera)))
