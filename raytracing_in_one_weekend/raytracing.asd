@@ -17,6 +17,9 @@
                #:yason
                (:require :sb-concurrency))
   :serial t
-  :components ((:file "canvas-server")
+  :components ((:file "package")
+               (:file "canvas-server")
+               (:file "material")
+               (:file "vector-utils")
                (:file "1")
-               ))
+               (:file "scenes")))

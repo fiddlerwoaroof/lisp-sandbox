@@ -1,7 +1,3 @@
-(defpackage :fwoar.lisp-sandbox.canvas-server
-  (:use :cl )
-  (:export
-   #:send-update))
 (in-package :fwoar.lisp-sandbox.canvas-server)
 
 (defvar *ws-servers* (make-array 10 :fill-pointer 0 :adjustable t))
