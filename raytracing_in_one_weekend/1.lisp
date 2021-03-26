@@ -287,3 +287,10 @@
           do (rotatef (aref arr i)
                       (aref arr j))
           finally (return (coerce arr (type-of seq))))))
+
+#+(or)
+(progn (let ((it (map 'list
+                      'sb-concurrency:mailbox-count
+                      *thread-queues*)))
+         (list it (apply '+ it)))
+       )
