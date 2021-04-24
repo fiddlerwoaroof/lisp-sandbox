@@ -134,59 +134,75 @@
                     (collect-edits it collector))
                   children))))))
 
-#+(or)
-(setf (ningle:route *a* "/2/(?<url>.*)" :regexp t)
-      (lambda (_)
-        (let ((*standard-output* *trace-output*))
-          (fresh-line)(princ "notice: ")(prin1 _)(terpri))
-        (let ((src (drakma:http-request (cadr (assoc :captures _)))))
-          (flet ((outp ()
-                   (spinneret:with-html
-                     (:div #+(or)selector-ui
-                           ;; :node-types ("expression" "identifier" "operator" "subscript-expression"
-                           ;;                           "member-expression" "jsx" "pair")
-                           (:pre
-                            (:code :class "language-ts"
-                                   (:raw
-                                    (fwoar.lisp-sandbox.ot-edit:apply-edits
-                                     src
-                                     (serapeum:with-collector (s)
-                                       (loop for next = (position #\< src)
-                                               then (position #\< src :start (1+ next))
-                                             while next
-                                             do (s (fwoar.lisp-sandbox.ot-edit::replace-char next "&lt;")))
-                                       (loop for next = (position #\> src)
-                                               then (position #\> src :start (1+ next))
-                                             while next
-                                             do (s (fwoar.lisp-sandbox.ot-edit::replace-char next "&gt;")))
-                                       (collect-edits (parse src)
-                                                      #'s))))))
-                           (:ul#w
-                            (:li "expression"))
-                           (:script
-                            (:raw "const ul = document.querySelector(\"#w\");"
-                                  "const dps = new Set([]);"
-                                  "[].map.call(document.querySelectorAll(\".syntax-element\"),"
-                                  " v=> {Array.from(v.classList).forEach(it=>dps.add(it.toLowerCase()))});"
-                                  "function it(v) {const it=document.createElement(\"li\"); "
-                                  "it.textContent = v; return it}"
-                                  " const dpA = Array.from(dps);dpA.sort();"
-                                  " dpA.forEach(cls => { if(/^[a-zA-Z-]{2,}$/.test(cls)) {ul.appendChild(it(cls))}})"))))))
-            (spinneret:with-html-string
-              (:style
-               "input[name=expression]:checked ~ pre .expression {color: var(--zenburn-red);background-color: hsla(180,0%,0%,0.1)}"
-               "input[name=jsx]:checked ~ pre .jsx {color: var(--zenburn-red);background-color: hsla(180,0%,0%,0.1)}"
-               "input[name=subscript-expression]:checked ~ pre .subscript-expression {color: var(--zenburn-red);background-color: hsla(180,0%,0%,0.1)}"
-               "input[name=member-expression]:checked ~ pre .member-expression {color: var(--zenburn-red);background-color: hsla(180,0%,0%,0.1)}"
-               "input[name=identifier]:checked ~ pre .function .identifier {color: var(--zenburn-red)}"
-               "input[name=operator]:checked ~ pre .function .operator {color: var(--zenburn-red)}"
-               "input[name=pair]:checked ~ pre .pair .tag-key {color: var(--zenburn-blue)}"
-               "input[name=pair]:checked ~ pre .pair .tag-value {color: var(--zenburn-green)}"
-               "input[name=pair]:checked ~ pre .pair {background: var(--zenburn-fg+1)}"
-               (coerce '(#\newline) 'string)
-               (alexandria:read-file-into-string (truename "~/styles.css"))
-               )
-              (outp))))))
+(defun setup-app (app)
+  (setf (ningle:route app "/2/(?<url>.*)" :regexp t)
+        (lambda (_)
+          (let ((*standard-output* *trace-output*))
+            (fresh-line)(princ "notice: ")(prin1 _)(terpri))
+          (let ((src (drakma:http-request (cadr (assoc :captures _)))))
+            (flet ((outp ()
+                     (spinneret:with-html
+                       (:div #+(or)selector-ui
+                             ;; :node-types ("expression" "identifier" "operator" "subscript-expression"
+                             ;;                           "member-expression" "jsx" "pair")
+                             (:input :type "checkbox" :name "import-statement")
+                             (:label :for "import-statement" "import-statement")
+                             (:input :type "checkbox" :name "expression")
+                             (:label :for "expression" "expression")
+                             (:input :type "checkbox" :name "identifier")
+                             (:label :for "identifier" "identifier")
+                             (:input :type "checkbox" :name "operator")
+                             (:label :for "operator" "operator")
+                             (:input :type "checkbox" :name "subscript-expression")
+                             (:label :for "subscript-expression" "subscript-expression")
+                             (:input :type "checkbox" :name "member-expression")
+                             (:label :for "member-expression" "member-expression")
+                             (:input :type "checkbox" :name "jsx")
+                             (:label :for "jsx" "jsx")
+                             (:input :type "checkbox" :name "pai")
+                             (:label :for "pair" "pair")
+                             (:pre
+                              (:code :class "language-ts"
+                                     (:raw
+                                      (fwoar.lisp-sandbox.ot-edit:apply-edits
+                                       src
+                                       (serapeum:with-collector (s)
+                                         (loop for next = (position #\< src)
+                                                 then (position #\< src :start (1+ next))
+                                               while next
+                                               do (s (fwoar.lisp-sandbox.ot-edit::replace-char next "&lt;")))
+                                         (loop for next = (position #\> src)
+                                                 then (position #\> src :start (1+ next))
+                                               while next
+                                               do (s (fwoar.lisp-sandbox.ot-edit::replace-char next "&gt;")))
+                                         (collect-edits (parse src)
+                                                        #'s))))))
+                             (:ul#w)
+                             (:script
+                              (:raw "const ul = document.querySelector(\"#w\");"
+                                    "const dps = new Set([]);"
+                                    "[].map.call(document.querySelectorAll(\".syntax-element\"),"
+                                    " v=> {Array.from(v.classList).forEach(it=>dps.add(it.toLowerCase()))});"
+                                    "function it(v) {const it=document.createElement(\"li\"); "
+                                    "it.textContent = v; return it}"
+                                    " const dpA = Array.from(dps);dpA.sort();"
+                                    " dpA.forEach(cls => { if(/^[a-zA-Z-]{2,}$/.test(cls)) {ul.appendChild(it(cls))}})"))))))
+              (spinneret:with-html-string
+                (:style
+                 "input[name=expression]:checked ~ pre .expression {color: var(--zenburn-red);background-color: hsla(180,0%,0%,0.1)}"
+                 "input[name=jsx]:checked ~ pre .jsx {color: var(--zenburn-red);background-color: hsla(180,0%,0%,0.1)}"
+                 "input[name=subscript-expression]:checked ~ pre .subscript-expression {color: var(--zenburn-red);background-color: hsla(180,0%,0%,0.1)}"
+                 "input[name=member-expression]:checked ~ pre .member-expression {color: var(--zenburn-red);background-color: hsla(180,0%,0%,0.1)}"
+                 "input[name=identifier]:checked ~ pre .identifier {color: var(--zenburn-red)}"
+                 "input[name=operator]:checked ~ pre .operator {color: var(--zenburn-red)}"
+                 "input[name=import-statement]:checked ~ pre .import-statement {color: var(--zenburn-red)}"
+                 "input[name=pair]:checked ~ pre .pair .tag-key {color: var(--zenburn-blue)}"
+                 "input[name=pair]:checked ~ pre .pair .tag-value {color: var(--zenburn-green)}"
+                 "input[name=pair]:checked ~ pre .pair {background: var(--zenburn-fg+1)}"
+                 (coerce '(#\newline) 'string)
+                 (alexandria:read-file-into-string (truename "~/styles.css"))
+                 )
+                (outp)))))))
 
 
 #+(or)
