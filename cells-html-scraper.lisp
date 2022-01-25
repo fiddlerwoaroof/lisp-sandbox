@@ -95,55 +95,65 @@
 
 #+lispworks
 (progn
-  (defvar *item-panel* (make-instance 'capi:list-panel
-                                      :print-function 'title
-                                      :selection-callback 'open-item))
-  (defvar *scraper* (make-instance 'hn-scraped))
-  (defvar *browser-pane* nil)
-  
-  (defun request-new-items (page)
-    (setf (cells-html-scraper::html *scraper*)
+  (defun request-new-items (interface page)
+    (setf (cells-html-scraper::html (hnr-scraper interface))
           (drakma:http-request (format nil "https://news.ycombinator.com/~a" page))))
-  (defun open-item (item)
-    (let ((was-bound-p *browser-pane*)
-          (*browser-pane*
-           (or *browser-pane*
-               (setf *browser-pane*
-                     (make-instance 'capi:browser-pane :debug t
-                                    :initial-constraints '(:external-min-width (/ :screen-width 2)
-                                                           :external-min-height :screen-height))))))
-      (capi:browser-pane-navigate *browser-pane* (puri:render-uri (url item) nil))
-      #+(or)
-      (unless was-bound-p
-        (capi:contain *browser-pane*))))
-  (defvar *pages*
-    (make-instance 'capi:list-panel
-                   :items (list "news" "newest" "ask" "show" "jobs")
-                   :initial-constraints '(:visible-max-width (:character 30))
-                   :selection-callback 'request-new-items
-                   :callback-type :item))
+
+  (defun open-item (interface item)
+    (capi:browser-pane-navigate (hnr-browser interface)
+                                (puri:render-uri (url item)
+                                                 nil)))
   
-  (cells:defobserver cells-html-scraper::%items ((self (eql *scraper*)) new-value)
-                     (map nil (lambda (it) (princ (cells-html-scraper::title it)) (terpri)) new-value)
-                     (capi:apply-in-pane-process #1=*item-panel*
-                                                 (lambda (pane)
-                                                   (let ((cleaned-items (remove-if 'null new-value :key 'cells-html-scraper::title)))
-                                                     (capi:remove-items pane (constantly t))
-                                                     (capi:append-items pane 
-                                                                        cleaned-items)))
-                                                 #1#))
-  (defun main-layout ()
-    (let ((result (make-instance 'capi:row-layout
-                                 :visible-min-width '(:character 120)
-                                 :visible-min-height '(:character 40)
-                                 :x-ratios '(1 nil 2)
-                                 :uniform-size-p nil
-                                 :children (list *pages* :divider
-                                                 (make-instance 'capi:column-layout
-                                                                :children (list *item-panel* :divider
-                                                                                *browser-pane*))))))
-      (prog1 result)))
+    
+  
+  
   (capi:define-interface hn-reader ()
-    (:panes )
-                )
+    ((scraper :reader hnr-scraper :initform (make-instance 'hn-scraped)))
+    (:panes
+     (pages capi:list-panel
+            :reader hnr-pages
+            :items (list "news" "newest" "ask" "show" "jobs")
+            :initial-constraints '(:visible-max-width (:string "newestest"))
+            :selection-callback 'request-new-items
+            :callback-type :interface-item)
+     (item-panel capi:list-panel
+                 :reader hnr-item-panel
+                 :print-function 'title
+                 :selection-callback 'open-item
+                 :callback-type :interface-item)
+     (browser capi:browser-pane
+              :reader hnr-browser
+              :url "https://fwoar.co"))
+    (:layouts
+     (right-side capi:column-layout
+                 '(item-panel :divider browser)
+                 :y-ratios '(1 nil 2)
+                 :uniform-size-p nil)
+     (main-layout capi:row-layout
+                  '(pages :divider right-side)
+                  :visible-min-width '(:character 120)
+                  :visible-min-height '(:character 40)
+                  :x-ratios '(1 nil 2)
+                  :uniform-size-p nil))
+    (:default-initargs
+     :layout 'main-layout
+     :title "HN Reader"))
+
+  (defmethod initialize-instance :after ((o hn-reader) &key)
+    (cells:defobserver
+     cells-html-scraper::%items ((self (eql (hnr-scraper o))) new-value)
+     
+     (capi:apply-in-pane-process
+      #1=(hnr-item-panel o)
+      (lambda (pane)
+        (let ((cleaned-items (remove-if 'null new-value :key 'cells-html-scraper::title)))
+          (capi:remove-items pane (constantly t))
+          (capi:append-items pane 
+                             cleaned-items)))
+      #1#))
+
+    (setf (cells-html-scraper::html (hnr-scraper o))
+          (drakma:http-request "https://news.ycombinator.com/")))
+  (defun startup ()
+    (capi:display (make-instance 'hn-reader)))
   )
