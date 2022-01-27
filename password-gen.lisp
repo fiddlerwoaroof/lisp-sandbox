@@ -39,14 +39,15 @@
   (elt seq
        (random (length seq))))
 
-(defun generate-password (len human-readable exclude-excluded)
+(defun generate-password (len human-readable exclude-excluded additional-special asp)
   (let* ((upper (make-readable human-readable *uppercase*))
          (lower (make-readable human-readable *lowercase*))
          (number (make-readable human-readable *numbers*))
          (special-initial (make-readable human-readable *special-characters*))
-         (special (if exclude-excluded
-                      (set-difference special-initial *excluded-characters*)
-                      special-initial))
+         (special (cond (asp (coerce additional-special 'list))
+                        (exclude-excluded
+                         (set-difference special-initial *excluded-characters*))
+                        (t special-initial)))
          (character-groups (list upper lower number special))
          (initial-password (reduce (lambda (acc x)
                                      (cons (sample x) acc))
@@ -64,11 +65,11 @@
                      :initial-value initial-password))
             'string)))
 
-(defun main (len count &optional human-readable exclude-excluded)
+(defun main (len count &optional human-readable exclude-excluded (additional-special nil asp))
   (if (< len 4)
       (print "Length must be at least 4~%")
       (loop for x from 1 to count do
-        (princ (generate-password len human-readable exclude-excluded))
+        (princ (generate-password len human-readable exclude-excluded additional-special asp))
         (terpri))))
 
 (defun parse-bool (str)
