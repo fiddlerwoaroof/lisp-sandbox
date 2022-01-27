@@ -1,6 +1,7 @@
 (eval-when (:load-toplevel :execute)
   (format t "~&Loading dependencies...")
-  (ql:quickload '(:alexandria :serapeum :fwoar.lisputils :drakma :flexi-streams :osicat :yason)))
+  (ql:quickload '(:alexandria :serapeum :fwoar-lisputils :drakma
+                  :flexi-streams :osicat :yason :trivia)))
 
 (eval-when (:load-toplevel :execute)
   (format t "~&Loading dependencies...")
@@ -41,19 +42,38 @@
 (in-package :ddclient-updater.main)
 (import 'ddclient-updater::*http-stream*)
 
-(defparameter *api-key* "rKOB3TrfjWfsUl6NpvN6A3vYTaQfdXgYTShDAFWI5rwHJKwFb0EyBT7Mt11YWrjV")
-(defparameter *domains* '("srv2.elangley.org" "vpn.elangley.org" "files.elangley.org" "home.elangley.org"
-			  "mycloud.elangley.org" "pbj.elangley.org" "readme.elangley.org"
-			  "wiki.elangley.org"))
+(defvar *api-key*)
+(defvar *domains*)
 
 (defsynopsis ()
   )
 (defun main ()
   (make-context)
-  (unwind-protect (update-domains *domains* *api-key*)
-    (when *http-stream*
-      (finish-output *http-stream*)
-      (close *http-stream*))))
+  (trivia:match (uiop:read-file-form "CONFIG:1984.sexp")
+    ((trivia:plist :api-key *api-key*
+                   :domains *domains*)
+     (unwind-protect (update-domains *domains*
+                                     *api-key*)
+       (when *http-stream*
+         (finish-output *http-stream*)
+         (close *http-stream*))))))
 
 (defun dump-image ()
+  (load "~/quicklisp/setup.lisp")
+  (pushnew `("SYS:SITE;**;*.*.*" ,(merge-pathnames
+                                   (make-pathname :directory (list
+                                                              :relative ".sbcl" "site"
+                                                              :wild-inferiors)
+                                                  :name :wild
+                                                  :type :wild)
+                                   (user-homedir-pathname)))
+           (logical-pathname-translations "SYS")
+           :test #'equal)
+
+  (mapcar (lambda (_)
+            (load-logical-pathname-translations (pathname-name _)))
+          (directory #p"SYS:SITE;*.translations"))
+
+
+
   (dump "ddns-updater" main))
