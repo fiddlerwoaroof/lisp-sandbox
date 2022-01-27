@@ -1,16 +1,5 @@
-(defun compose (function &rest more-functions)
-  "Returns a function composed of FUNCTION and MORE-FUNCTIONS that applies its
-arguments to to each in turn, starting from the rightmost of MORE-FUNCTIONS,
-and then calling the next one with the primary value of the last."
-  (declare (optimize (speed 3) (safety 1) (debug 1)))
-  (reduce (lambda (f g)
-	          (let ((f (ensure-function f))
-		              (g (ensure-function g)))
-	            (lambda (&rest arguments)
-		            (declare (dynamic-extent arguments))
-		            (funcall f (apply g arguments)))))
-          more-functions
-          :initial-value function))
+(ql:quickload :alexandria)
+(import 'alexandria:compose)
 
 (defun make-snoc ()
   (vector nil nil))
@@ -25,10 +14,8 @@ and then calling the next one with the primary value of the last."
   acc)
 (defun desnoc (acc)
   (elt acc 0))
-
 (defun 2* (it)
   (* 2 it))
-
 ;; mapcar: conses up three lists, but keeps the steps separate
 cl-user> (mapcar '1+
                  (mapcar '2*
@@ -230,7 +217,7 @@ cl-user> (labels ((mapping (function)
 #<HASH-TABLE :TEST EQL :COUNT 4 {10075E2E13}>
 ((427 . 213) (1135 . 567) (691 . 345) (469 . 234))
 
-;; We can trivially switch data structures now
+;;; without EXIT-EARLY:
 cl-user> (labels ((mapping (function)
                     (lambda (rf)
                       (lambda (acc next)
@@ -245,22 +232,90 @@ cl-user> (labels ((mapping (function)
                     (lambda (rf)
                       (lambda (acc next)
                         (reduce rf next :initial-value acc))))
+                  (exit-early (acc)
+                    (throw 'done acc))
+                  (taking (n)
+                    (let ((taken 0))
+                      (lambda (rf)
+                        (lambda (acc next)
+                          (format t "~&>>> ~s~%" next)
+                          (if (< taken n)
+                              (prog1 (funcall rf acc next)
+                                (incf taken))
+                              acc)))))
                   (transduce (xf build seq)
                     (funcall build
-                             (reduce (funcall xf build) seq :initial-value (funcall build)))))
+                             (catch 'done
+                               (reduce (funcall xf build) seq :initial-value (funcall build))))))
            (let ((result (transduce (compose (catting)
                                              (mapping #'parse-integer)
                                              (filtering (complement #'evenp))
                                              (mapping (data-lens:juxt #'identity #'identity))
                                              (mapping (data-lens:transform-head #'2*))
-                                             (mapping (data-lens:transform-head #'1+)))
+                                             (mapping (data-lens:transform-head #'1+))
+                                             (taking 2))
                                     (lambda (&optional (acc nil acc-p) (next nil next-p))
                                       (cond (next-p (destructuring-bind (k v) next
                                                       (setf (gethash k acc) v)) acc)
                                             (acc-p acc)
                                             (t (make-hash-table))))
-                                    '(("234" "345") ("567" "213")))))
+                                    '(("123" "234" "345" "454") ("568" "490") ("567" "213")))))
              (values result
                      (alexandria:hash-table-alist result))))
-#<HASH-TABLE :TEST EQL :COUNT 3 {100AA69173}>
-((427 . 213) (1135 . 567) (691 . 345))
+;; >>> (247 123)
+;; >>> (691 345)
+;; >>> (1135 567)
+;; >>> (427 213)
+;; #<HASH-TABLE :TEST EQL :COUNT 2 {101585B6B3}>
+;; ((691 . 345) (247 . 123))
+
+
+;;; with EXIT-EARLY:
+cl-user> (labels ((mapping (function)
+                    (lambda (rf)
+                      (lambda (acc next)
+                        (funcall rf acc (funcall function next)))))
+                  (filtering (predicate)
+                    (lambda (rf)
+                      (lambda (acc next)
+                        (if (funcall predicate next)
+                            (funcall rf acc next)
+                            acc))))
+                  (catting ()
+                    (lambda (rf)
+                      (lambda (acc next)
+                        (reduce rf next :initial-value acc))))
+                  (exit-early (acc)
+                    (throw 'done acc))
+                  (taking (n)
+                    (let ((taken 0))
+                      (lambda (rf)
+                        (lambda (acc next)
+                          (format t "~&>>> ~s~%" next)
+                          (incf taken)
+                          (if (< taken n)
+                              (funcall rf acc next)
+                              (exit-early (funcall rf acc next)))))))
+                  (transduce (xf build seq)
+                    (funcall build
+                             (catch 'done
+                               (reduce (funcall xf build) seq :initial-value (funcall build))))))
+           (let ((result (transduce (compose (catting)
+                                             (mapping #'parse-integer)
+                                             (filtering (complement #'evenp))
+                                             (mapping (data-lens:juxt #'identity #'identity))
+                                             (mapping (data-lens:transform-head #'2*))
+                                             (mapping (data-lens:transform-head #'1+))
+                                             (taking 2))
+                                    (lambda (&optional (acc nil acc-p) (next nil next-p))
+                                      (cond (next-p (destructuring-bind (k v) next
+                                                      (setf (gethash k acc) v)) acc)
+                                            (acc-p acc)
+                                            (t (make-hash-table))))
+                                    '(("123" "234" "345" "454") ("568" "490") ("567" "213")))))
+             (values result
+                     (alexandria:hash-table-alist result))))
+;; >>> (247 123)
+;; >>> (691 345)
+;; #<HASH-TABLE :TEST EQL :COUNT 2 {1015B46E23}>
+;; ((691 . 345) (247 . 123))
