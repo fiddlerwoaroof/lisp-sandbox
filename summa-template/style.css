@@ -1,0 +1,284 @@
+:root {
+  --zenburn-fg-plus-2: #ffffef;
+  --zenburn-fg-plus-1: #f5f5d6;
+  --zenburn-fg: #dcdccc;
+  --zenburn-fg-1: #a6a689;
+  --zenburn-fg-2: #656555;
+  --zenburn-black: #000000;
+  --zenburn-bg-2: #000000;
+  --zenburn-bg-1: #111112;
+  --zenburn-bg-05: #383838;
+  --zenburn-bg: #2a2b2e;
+  --zenburn-bg-plus-05: #494949;
+  --zenburn-bg-plus-1: #4f4f4f;
+  --zenburn-bg-plus-2: #5f5f5f;
+  --zenburn-bg-plus-3: #6f6f6f;
+  --zenburn-red-plus-2: #ecb3b3;
+  --zenburn-red-plus-1: #dca3a3;
+  --zenburn-red: #cc9393;
+  --zenburn-red-1: #bc8383;
+  --zenburn-red-2: #ac7373;
+  --zenburn-red-3: #9c6363;
+  --zenburn-red-4: #8c5353;
+  --zenburn-red-5: #7c4343;
+  --zenburn-red-6: #6c3333;
+  --zenburn-orange: #dfaf8f;
+  --zenburn-yellow: #f0dfaf;
+  --zenburn-yellow-1: #e0cf9f;
+  --zenburn-yellow-2: #d0bf8f;
+  --zenburn-green-5: #2f4f2f;
+  --zenburn-green-4: #3f5f3f;
+  --zenburn-green-3: #4f6f4f;
+  --zenburn-green-2: #5f7f5f;
+  --zenburn-green-1: #6f8f6f;
+  --zenburn-green: #7f9f7f;
+  --zenburn-green-plus-1: #8fb28f;
+  --zenburn-green-plus-2: #9fc59f;
+  --zenburn-green-plus-3: #afd8af;
+  --zenburn-green-plus-4: #bfebbf;
+  --zenburn-cyan: #93e0e3;
+  --zenburn-blue-plus-3: #bde0f3;
+  --zenburn-blue-plus-2: #ace0e3;
+  --zenburn-blue-plus-1: #94bff3;
+  --zenburn-blue: #8cd0d3;
+  --zenburn-blue-1: #7cb8bb;
+  --zenburn-blue-2: #6ca0a3;
+  --zenburn-blue-3: #5c888b;
+  --zenburn-blue-4: #4c7073;
+  --zenburn-blue-5: #366060;
+  --zenburn-magenta: #dc8cc3;
+}
+html,
+body,
+ol {
+  margin: 0;
+  padding: 0;
+}
+* {
+  box-sizing: border-box;
+}
+
+body {
+  font-family: "Lato", sans-serif;
+  color: var(--foreground);
+  background-color: var(--background);
+}
+body {
+  --background: var(--zenburn-bg);
+  --foreground: var(--zenburn-fg);
+  --foreground-diminish: var(--zenburn-fg-1);
+  --foreground-highlight: var(--zenburn-fg-plus-1);
+  --accent: var(--zenburn-orange);
+  --link: var(--zenburn-blue);
+  --link-visited: var(--zenburn-magenta);
+}
+
+@media (prefers-color-scheme: light) {
+  body {
+    --background: var(--zenburn-fg);
+    --foreground: var(--zenburn-bg);
+    --foreground-diminish: var(--zenburn-bg-1);
+    --foreground-highlight: var(--zenburn-bg-plus-1);
+    --accent: var(--zenburn-red-5);
+    --link: var(--zenburn-blue-4);
+    --link-visited: var(--zenburn-green-4);
+  }
+}
+
+
+@media print {
+  body {
+    --background: white;
+    --foreground: black;
+    --foreground-diminish: #444;
+    --foreground-highlight: white;
+    --accent: #888;
+    --link: black;
+    --link-visited: black;
+  }
+  main {
+      text-align: justify;
+  }
+}
+
+a {
+  color: var(--link);
+}
+a:visited {
+  color: var(--link-visited);
+}
+a:hover {
+  outline: thin solid currentColor;
+}
+
+label[for="theme-selector"] {
+  position: fixed;
+  top: 1rem;
+  right: 1rem;
+}
+input[name="theme-selector"] {
+  display: none;
+}
+input[name="theme-selector"]:checked ~ label[for="theme-selector"] {
+  color: qvar(--zenburn-blue);
+  content: "light";
+}
+input[name="theme-selector"]:checked ~ label[for="theme-selector"] > *:before {
+  content: "light";
+}
+label[for="theme-selector"] {
+  color: var(--zenburn-blue-4);
+  content: "dark";
+  font-family: "Lato";
+}
+label[for="theme-selector"] > *:before {
+  content: "dark";
+}
+main {
+  line-height: 1.5;
+  letter-spacing: 1px;
+  width: 100%;
+  padding-top: 2rem;
+  padding-bottom: 2rem;
+  padding-right: calc(100vw - 40em);
+  padding-left: 5.5rem;
+  min-height: 100vh;
+}
+main > * {
+}
+
+h1,
+h2,
+h3,
+h4,
+h5,
+h6 {
+  color: var(--accent);
+  margin: 0.25rem 0 0.5rem 0;
+}
+h1 {
+  font-size: 2rem;
+}
+h2 {
+  font-size: 1.5rem;
+}
+h3 {
+  font-size: 1.25rem;
+}
+h4 {
+  font-size: 1.125rem;
+  display: none;
+}
+h5 {
+  font-size: 1.0625rem;
+}
+h6 {
+  font-size: 1.03125rem;
+}
+
+*:not(h1, h2, h3, h4, h5, h6) + h2,
+*:not(h1, h2, h3, h4, h5, h6) + h3,
+*:not(h1, h2, h3, h4, h5, h6) + h4,
+*:not(h1, h2, h3, h4, h5, h6) + h5,
+*:not(h1, h2, h3, h4, h5, h6) + h6 {
+  margin-top: 2.5rem;
+  margin-bottom: 1rem;
+}
+
+ol.sedcontrae li::before,
+ol.responsiones li::before,
+.resp::before {
+  color: var(--foreground-diminish);
+}
+
+u {
+  color: var(--foreground-highlight);
+  text-decoration: underline 0.1px;
+}
+
+li + li {
+  margin-top: 0.25em;
+}
+.objectio,
+.sedcontra,
+.responsio,
+.toc {
+  margin: 0;
+  padding: 0;
+}
+.pr,.articulus {
+    padding-bottom: 3em;
+}
+ol.objectiones,
+ol.sedcontrae,
+section.corpus {
+  padding-bottom: 2.5em;
+}
+ol.objectiones li + li,
+ol.sedcontrae li + li,
+ol.responsiones li + li,
+section.corpus li + li {
+  margin-top: 1.5em;
+}
+
+li::marker {
+  color: var(--foreground-diminish);
+}
+
+@counter-style objectio {
+  system: extends numeric;
+  prefix: "arg.";
+}
+ol.objectiones {
+  position: relative;
+  list-style: outside objectio;
+}
+
+@counter-style sedcontra {
+  system: extends numeric;
+  prefix: "s.c. ";
+}
+ol.sedcontrae {
+  position: relative;
+  list-style: outside sedcontra;
+}
+
+@counter-style responsio {
+  system: extends numeric;
+  prefix: "ad ";
+}
+ol.responsiones {
+  position: relative;
+  list-style: outside responsio;
+}
+
+.resp {
+  position: relative;
+}
+
+.resp::before {
+  content: "co. ";
+}
+
+@media screen and (max-width: 980px) {
+  body {
+    font-size: 24px;
+    line-height: 1.2em;
+  }
+  main {
+    padding: 0 1em;
+  }
+  ol.objectiones,
+  ol.sedcontrae,
+  ol.responsiones {
+    list-style-position: inside;
+  }
+}
+
+* + .minor,
+* + .major,
+* + .conclusion,
+.corpus > * + *,
+ol.responsiones > li > div + div {
+  margin-top: 0.75em;
+}
