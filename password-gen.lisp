@@ -66,6 +66,7 @@
             'string)))
 
 (defun main (len count &optional human-readable exclude-excluded (additional-special nil asp))
+  (setf *random-state* (make-random-state t))
   (if (< len 4)
       (print "Length must be at least 4~%")
       (loop for x from 1 to count do
