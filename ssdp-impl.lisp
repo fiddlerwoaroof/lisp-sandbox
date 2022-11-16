@@ -55,6 +55,22 @@
 
 (defun setup-sockopt (socket addr)
   (setf (sb-bsd-sockets:sockopt-ip-multicast-loop socket) nil
-        (sb-bsd-sockets:sockopt-multicast-if socket) (addr->int addr)
-        (sb-bsd-sockets:sockopt-multicast-ttl socket) 2)
+        (sb-bsd-sockets:sockopt-ip-multicast-if socket) (addr->int addr)
+        (sb-bsd-sockets:sockopt-ip-multicast-ttl socket) 2)
   socket)
+
+
+(macrolet ((def-keypress-fun (name)
+             (let ((endpoint (:printv
+                              (format nil "/keypress/~{~:(~a~)~}"
+                                      (coerce (fwoar.string-utils:split #\-
+                                                                        (string name))
+                                              'list)))))
+               `(defun ,name ()
+                  (drakma:http-request (puri:merge-uris ,endpoint
+                                                        (puri:parse-uri *roku*))
+                                       :method :post)))))
+  (def-keypress-fun power-on)
+  (def-keypress-fun power-off)
+  (def-keypress-fun volume-up)
+  (def-keypress-fun volume-down))
